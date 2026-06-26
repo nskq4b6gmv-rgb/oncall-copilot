@@ -85,7 +85,10 @@ Fixing #1 and #2 is the obvious next iteration — but they're left visible on p
 | `mcp_server/server.py` | MCP: the same 5 tools exposed to any MCP client |
 | `evals/` | Evals: dataset + LLM-as-judge + tool-choice + safety + pass-rate gate |
 
-Deeper write-ups: `OnCall_Copilot_Full_Build.md` (full build guide + interview Q&A) and `OnCall_Copilot_Explained_Simply.md` (plain-English tour).
+Deeper write-ups:
+- **[`WALKTHROUGH.md`](./WALKTHROUGH.md)** — *what I built, how, and why*, decision by decision, in my own voice (start here if you want my thinking).
+- [`OnCall_Copilot_Full_Build.md`](./OnCall_Copilot_Full_Build.md) — full build guide + interview Q&A.
+- [`OnCall_Copilot_Explained_Simply.md`](./OnCall_Copilot_Explained_Simply.md) — plain-English tour, no jargon.
 
 ## Safety
 
