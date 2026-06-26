@@ -1,0 +1,9 @@
+# Core: provider SDKs + MCP server
+openai>=1.40
+anthropic>=0.40
+mcp>=1.0
+
+# Optional extra: local semantic retrieval (retrieve_semantic in src/retriever.py).
+# Not needed for the default keyword retriever. Install with:
+#   pip install sentence-transformers
+# sentence-transformers>=2.2

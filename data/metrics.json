@@ -1,0 +1,6 @@
+{
+  "checkout": { "error_rate": [0.2, 0.3, 4.8, 6.1], "p99_latency_ms": [210, 220, 240, 255] },
+  "payments": { "error_rate": [0.1, 0.1, 0.2, 0.2], "p99_latency_ms": [180, 190, 195, 200] },
+  "search":   { "error_rate": [0.3, 0.3, 0.4, 0.5], "p99_latency_ms": [300, 650, 900, 1200] },
+  "auth":     { "error_rate": [0.2, 1.5, 3.0, 4.0], "p99_latency_ms": [120, 130, 140, 150] }
+}

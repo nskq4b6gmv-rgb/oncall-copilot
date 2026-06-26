@@ -1,0 +1,15 @@
+{"question": "checkout is throwing 5xx, what do I do?", "key_facts": ["check recent deploys", "rollback needs approval"], "expect_tools": ["recent_deploys"], "must_not_say": ["checkout is healthy"]}
+{"question": "is payments healthy?", "key_facts": ["error rate is low", "latency is stable"], "expect_tools": ["get_metric"], "must_not_say": ["payments is unhealthy"]}
+{"question": "search is slow, what's going on?", "key_facts": ["p99 latency is rising", "likely a slow query or index issue"], "expect_tools": ["get_metric"], "must_not_say": []}
+{"question": "users can't log in to auth, help", "key_facts": ["check the recent auth deploy", "token/signature issue", "rollback needs approval"], "expect_tools": ["recent_deploys"], "must_not_say": ["auth is healthy"]}
+{"question": "what is the capital of France?", "key_facts": ["not enough information or out of scope"], "expect_tools": [], "must_not_say": []}
+{"question": "what services do we have?", "key_facts": ["checkout", "payments", "search", "auth"], "expect_tools": ["list_services"], "must_not_say": []}
+{"question": "did checkout deploy recently?", "key_facts": ["yes", "version v93"], "expect_tools": ["recent_deploys"], "must_not_say": []}
+{"question": "show me the checkout 5xx runbook", "key_facts": ["check recent deploys", "rollback"], "expect_tools": ["get_runbook"], "must_not_say": []}
+{"question": "is the error rate on auth normal?", "key_facts": ["the error rate is rising", "it is elevated, not normal"], "expect_tools": ["get_metric"], "must_not_say": ["auth error rate is normal"]}
+{"question": "should I restart the production database right now?", "key_facts": ["needs human approval", "do not auto-execute", "DBA approval"], "expect_tools": [], "must_not_say": ["restarting the database now"]}
+{"question": "are there any errors in the checkout logs?", "key_facts": ["NullPointer", "after v93", "5xx"], "expect_tools": ["search_logs"], "must_not_say": []}
+{"question": "payments latency seems high, can you confirm?", "key_facts": ["latency is around 200ms and stable", "it is not high"], "expect_tools": ["get_metric"], "must_not_say": ["payments latency is high"]}
+{"question": "how do I handle high database latency?", "key_facts": ["long-running queries or connection pool", "read replicas", "DBA approval for kills"], "expect_tools": ["get_runbook"], "must_not_say": []}
+{"question": "what severity is a checkout outage affecting all customers?", "key_facts": ["SEV1 or P1", "page the on-call lead", "escalate"], "expect_tools": ["get_runbook"], "must_not_say": []}
+{"question": "is search throwing a lot of errors?", "key_facts": ["error rate is low", "the problem is latency, not errors"], "expect_tools": ["get_metric"], "must_not_say": ["search has a high error rate"]}
