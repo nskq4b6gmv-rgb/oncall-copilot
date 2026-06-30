@@ -129,6 +129,7 @@ And here's the honest part, because it's the most important: **multi-agent mode 
 > - **`python -m viz.server`** — open http://localhost:8000 and *watch* a run unfold (try the "multi-agent" toggle).
 > - **[`src/agents.py`](./src/agents.py)** + **[`guardrails.json`](./guardrails.json)** — the opt-in governed pipeline and the editable safety policy.
 > - **This file** — *why* each of those looks the way it does.
+> - **[`IMPROVEMENTS.md`](./IMPROVEMENTS.md)** — the running log of every change and the reasoning behind it (the "evolution of learning").
 >
 > The one thing I'd want you to take away: I treat an AI system the way I treat a production system — **ground it, constrain its blast radius, and measure it honestly.** That's the observability discipline, pointed at a new kind of system.
 >
