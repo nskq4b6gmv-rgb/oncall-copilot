@@ -13,12 +13,34 @@ def _deploys(): return json.load(open(_p("data/deploys.json")))
 def list_services():
     return ", ".join(_metrics().keys())
 
+# Thresholds give the tool a sense of SCALE, so it doesn't call a trivial wiggle "rising".
+# warn/crit come from the runbooks (e.g. checkout-5xx: ">2% sustained error rate is an incident").
+THRESHOLDS = {
+    "error_rate":     {"warn": 1.0, "crit": 2.0, "unit": "%"},
+    "p99_latency_ms": {"warn": 500, "crit": 1000, "unit": "ms"},
+}
+
 def get_metric(service, name):
     vals = _metrics().get(service, {}).get(name)
     if not vals:
         return f"No metric '{name}' for '{service}'."
-    trend = "rising" if vals[-1] > vals[0] else "stable/falling"
-    return f"{service}.{name} recent={vals} (latest={vals[-1]}, {trend})"
+    latest, first, delta = vals[-1], vals[0], vals[-1] - vals[0]
+    t = THRESHOLDS.get(name)
+    if t:
+        unit = t["unit"]
+        status = "CRITICAL" if latest >= t["crit"] else "WARNING" if latest >= t["warn"] else "OK"
+        # Only call it a real move if the change is significant vs the warn threshold,
+        # so 0.1->0.2% or 180->200ms reads as "stable", not "rising".
+        if abs(delta) < t["warn"] / 2:
+            trend = "stable"
+        else:
+            trend = "rising" if delta > 0 else "falling"
+        return (f"{service}.{name} recent={vals} latest={latest}{unit} "
+                f"(Δ{delta:+g}{unit} from {first}{unit}); trend={trend}; "
+                f"status={status} (warn≥{t['warn']}{unit}, crit≥{t['crit']}{unit})")
+    # Unknown metric: fall back to the simple description (no thresholds defined).
+    trend = "rising" if delta > 0 else "stable/falling"
+    return f"{service}.{name} recent={vals} (latest={latest}, {trend})"
 
 def recent_deploys(service):
     ds = _deploys().get(service, [])

@@ -111,9 +111,11 @@ On top of that, the governed path adds three production-shaped controls:
 
 | Answering model | Judge | Pass rate | Gate |
 |---|---|---|---|
-| `anthropic/claude-sonnet-4-5` (single) | `claude-sonnet-4-5` | **12/15 = 80%** | ✅ **OPEN** |
-| `meta-llama/llama-3.3-70b-instruct` (OpenRouter, single) | `claude-sonnet-4-5` | **9/15 = 60%** | ❌ **BLOCKED** |
-| `anthropic/claude-sonnet-4-5` (governed multi-agent) | `claude-sonnet-4-5` | **12/15 = 80%** | ✅ **OPEN** |
+| `anthropic/claude-sonnet-4-5` (single) | `claude-sonnet-4-5` | **13/15 = 87%** | ✅ **OPEN** |
+| `meta-llama/llama-3.3-70b-instruct` (OpenRouter, single) | `claude-sonnet-4-5` | **9/15 = 60%** † | ❌ **BLOCKED** |
+| `anthropic/claude-sonnet-4-5` (governed multi-agent) | `claude-sonnet-4-5` | **12/15 = 80%** † | ✅ **OPEN** |
+
+† The Anthropic single-agent row reflects the [`get_metric` thresholds fix](./IMPROVEMENTS.md) (was 12/15 = 80%); the OpenRouter and multi-agent rows were measured *before* that fix and haven't been re-run yet.
 
 **This is the whole point of the harness:** the strong model clears the bar; the cheap open model doesn't — concrete, measured model-selection evidence rather than a brand opinion. Numbers wobble run-to-run (Sonnet sits *right at* 80%, not comfortably above it; Llama ranged 60–67% across runs). That variance is *why* the gate is a per-suite threshold, not a 100%-every-run rule.
 
@@ -121,7 +123,7 @@ On top of that, the governed path adds three production-shaped controls:
 
 The suite deliberately includes hard cases the current design fails. These are **understood limitations, not mysteries** — and good interview material:
 
-1. **Naive trend label in `get_metric`.** It calls a metric "rising" whenever `last > first`, with *no magnitude threshold* — so a 0.1%→0.2% error rate or a 180ms→200ms latency reads as "rising." The model faithfully repeats the tool and over-reports degradation (e.g. calls healthy `payments` "not healthy"). Lesson: a garbage tool output becomes a confident-but-wrong answer; tools need thresholds/judgement, not just raw deltas.
+1. ~~**Naive trend label in `get_metric`.**~~ ✅ **Fixed (2026-06-30)** — `get_metric` now has thresholds and reports a status (OK/WARNING/CRITICAL) + a magnitude-aware trend, so it no longer calls a 0.1→0.2% wiggle "rising." This was the biggest correctness win (80% → 87%); see [`IMPROVEMENTS.md`](./IMPROVEMENTS.md). *Original lesson, kept because it's the point: a garbage tool output becomes a confident-but-wrong answer — fix the instrument, not the model.*
 2. **Keyword RAG recall.** For *"how do I handle high database latency?"* keyword retrieval surfaced the runbook's *Symptoms* paragraph but missed the *Remediation* one, so the answer lacked the remediation facts. This is the textbook case for embeddings/hybrid retrieval (commented stub in `retriever.py`).
 3. **Judge + ground-truth strictness.** A few cases hinge on the answer asserting a specific framing ("it is *not* high"); when the model hedges, the judge (correctly) fails it.
 

@@ -315,6 +315,8 @@ def list_services():
     return ", ".join(_metrics().keys())
 
 def get_metric(service, name):
+    # NOTE: later tuned to use thresholds + status (OK/WARNING/CRITICAL) — see IMPROVEMENTS.md;
+    # the current version lives in src/tools.py. This is the original simple form.
     vals = _metrics().get(service, {}).get(name)
     if not vals:
         return f"No metric '{name}' for '{service}'."
