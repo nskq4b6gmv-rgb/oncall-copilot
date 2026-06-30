@@ -52,7 +52,34 @@ python -m viz.server          # live visualizer → open http://localhost:8000
 # swap the brain any time:  export PROVIDER=anthropic | openai | openrouter
 ```
 
-The eval **judge** is pinned to a strong, fixed model (default `anthropic/claude-sonnet-4-5`) so it isn't grading its own work and the score is stable run-to-run. Override with `JUDGE_PROVIDER` / `JUDGE_MODEL`.
+The **judge/verifier** is pinned to a strong, fixed model (default `anthropic/claude-sonnet-4-5`) so it isn't grading its own work and the score is stable run-to-run. Override with `JUDGE_PROVIDER` / `JUDGE_MODEL`.
+
+### Configuration (environment variables)
+
+Everything is env-driven; nothing hardcodes a vendor. Sensible defaults mean the only thing you *must* set is one API key.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PROVIDER` | `openrouter` | Answering backend: `openrouter` \| `anthropic` \| `openai`. |
+| `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | — | Key for the chosen provider. |
+| `OPENROUTER_MODEL` | `meta-llama/llama-3.3-70b-instruct` | Answering model on OpenRouter (needs tool support for the agent). |
+| `ANTHROPIC_MODEL` / `OPENAI_MODEL` | `claude-sonnet-4-5` / `gpt-4o` | Answering model for those providers. |
+| `JUDGE_PROVIDER` / `JUDGE_MODEL` | `anthropic` / `claude-sonnet-4-5` | The independent judge (evals) and verifier (multi-agent). See note below. |
+| `ONCALL_MODE` | `single` | `single` = one investigator agent; `multi` = governed pipeline (triage→investigate→verify→postmortem). |
+| `GUARDRAILS_FILE` | `guardrails.json` | Path to the guardrail policy. |
+| `ONCALL_LOG_DIR` | `logs/` | Where per-run JSONL traces are written. |
+| `VIZ_PORT` | `8000` | Port for the live visualizer. |
+
+**Judge/verifier independence (important):** to avoid a model grading its own work, the judge should be a *different* model than the answerer.
+- Answering on OpenRouter/OpenAI with the **default Anthropic judge** → already independent.
+- **Single key (OpenRouter only)?** Point the judge at a *different* OpenRouter model:
+  ```bash
+  export PROVIDER=openrouter
+  export OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct"
+  export JUDGE_PROVIDER=openrouter
+  export JUDGE_MODEL="qwen/qwen-2.5-72b-instruct"   # ≠ OPENROUTER_MODEL
+  ```
+- If the judge client can't be built (e.g. no key for its provider), the verifier **falls back to the answering model and reports that independence was lost** — shown on the verifier card in the visualizer and in the run log, never hidden. (Answering *and* judging with the same model — e.g. Anthropic for both — is flagged the same way.)
 
 ### Watch a run, live
 
@@ -67,7 +94,7 @@ triage (router) → investigator (the single agent) → verifier (independent) �
 ```
 
 - **Triage** — a lightweight classifier: incident / knowledge / out-of-scope. Honestly a *router*, not a heavyweight agent; it only short-circuits clear out-of-scope questions, so the investigator keeps full tool access.
-- **Verifier** — an **actor→critic** guardrail run by an *independent* model (the eval judge, by default a different provider than the answerer), checking the draft is grounded in the gathered evidence and breaks no safety rule. Can send it back for **one revision**.
+- **Verifier** — an **actor→critic** guardrail run by an *independent* model (`JUDGE_PROVIDER`/`JUDGE_MODEL`, by default a different model than the answerer — see [Configuration](#configuration-environment-variables) for the single-key setup), checking the draft is grounded in the gathered evidence and breaks no safety rule. Can send it back for **one revision**. If no independent judge is available it falls back to the answering model and says so, rather than pretending to be independent.
 - **Postmortem** — synthesizes a blameless incident report from the trajectory.
 
 On top of that, the governed path adds three production-shaped controls:

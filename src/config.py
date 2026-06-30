@@ -17,9 +17,15 @@ MAX_AGENT_STEPS = 5        # safety stop so the agent loop can't run forever
 # "multi"  = opt-in pipeline: triage -> investigator -> verifier -> postmortem (see src/agents.py).
 ONCALL_MODE = os.getenv("ONCALL_MODE", "single")
 
-# --- Eval judge (LLM-as-judge) ---
-# Pin a STRONG judge, and by default a DIFFERENT provider than the one answering,
-# so the model isn't grading its own work (reduces self-preference bias) and the
-# score is stable run-to-run. Override with env vars if you only have one key.
+# --- Judge / verifier model (used by the eval LLM-as-judge AND the multi-agent verifier) ---
+# Pin a STRONG model that is DIFFERENT from the one answering, so the model isn't grading
+# its own work (reduces self-preference bias) and the score is stable run-to-run.
+#   Default: Anthropic Claude — independent when you answer on OpenRouter/OpenAI.
+#   SINGLE-KEY (OpenRouter only): set JUDGE_PROVIDER=openrouter and a JUDGE_MODEL that is
+#   DIFFERENT from OPENROUTER_MODEL, e.g.
+#       export JUDGE_PROVIDER=openrouter
+#       export JUDGE_MODEL="qwen/qwen-2.5-72b-instruct"   # ≠ your OPENROUTER_MODEL
+#   If the judge client can't be built, the verifier falls back to the answering model and
+#   reports that independence was lost (shown in the visualizer and the run log).
 JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "anthropic")
 JUDGE_MODEL    = os.getenv("JUDGE_MODEL", "claude-sonnet-4-5")

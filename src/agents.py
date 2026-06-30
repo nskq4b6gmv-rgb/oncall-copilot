@@ -128,12 +128,17 @@ def postmortem(question, answer_text, trajectory, client, emit):
 
 # ---------------------------------------------------------------- orchestrator
 def _verifier_client(answer_client):
-    # Prefer an INDEPENDENT strong model (same design as the eval judge) to avoid
-    # self-grading bias. Fall back to the answering client if that can't be built.
+    # Prefer an INDEPENDENT model (different from the answerer) to avoid self-grading bias.
+    # Single-key setups work too: set JUDGE_PROVIDER=openrouter and a JUDGE_MODEL that is
+    # DIFFERENT from OPENROUTER_MODEL. If the judge client can't be built (e.g. no key for
+    # the judge provider), fall back to the answering model — independence is then LOST,
+    # which we surface in the UI and logs rather than hide.
     try:
-        return llm.get_judge_client()
+        jc = llm.get_judge_client()
+        independent = getattr(jc, "model", None) != getattr(answer_client, "model", None)
+        return jc, independent
     except Exception:
-        return answer_client
+        return answer_client, False
 
 
 def run(question, client, on_event=None, make_postmortem=True):
@@ -167,7 +172,9 @@ def run(question, client, on_event=None, make_postmortem=True):
                          system=inv_system, allowed_tools=gr.allowed_tools)
 
     # 3) Verify (independent model) -> optionally one revision.
-    vclient = _verifier_client(client)
+    vclient, independent = _verifier_client(client)
+    emit({"type": "verifier_info", "model": getattr(vclient, "model", "?"),
+          "independent": independent})
     result, evidence = verify(question, draft, trajectory, emit, vclient)
     final_answer = draft
     revised = False

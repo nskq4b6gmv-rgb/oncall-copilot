@@ -186,11 +186,17 @@ function handle(ev){
     case "draft_answer":
       setStep("investigator","done"); setStep("verifier","active");
       card("", "📝 Draft answer (pre-verification)", "from investigator", ev.text); break;
+    case "verifier_info":
+      window._vinfo = ev; break;
     case "verify":{
       setStep("verifier","done"); setStep("postmortem","active");
       const ok = ev.verdict==="pass";
+      const vi = window._vinfo || {};
+      const indTag = vi.model ? (vi.independent
+        ? `independent · ${esc(vi.model)}`
+        : `⚠ same model as answerer (${esc(vi.model)}) — not independent`) : "independent check";
       railNode("agent","Verifier", ev.verdict);
-      const c = card("agent", "🛡️ Verifier agent", "independent check", null);
+      const c = card("agent", "🛡️ Verifier agent", indTag, null);
       c.querySelector(".ttl").innerHTML += ` <span class="badge">agent</span>`;
       const body = document.createElement("div");
       body.innerHTML = `grounded: <span class="verdict ${ev.grounded?'ok':'bad'}">${ev.grounded}</span> · `

@@ -723,3 +723,31 @@ This is the part that turns "I built a demo" into "I understand AI systems." For
 
 > **Interviewer:** *"A customer asks which model to use. How do you decide?"*
 > **You:** I make it a measurement, not an opinion. I take their real use case, build an eval set from it, and run the candidate models through the *same* harness — scoring accuracy, tool-choice, safety, latency, and cost per request. Then I recommend with a table: "Model A is 4% more accurate but 3× the cost and 2× the latency; for this workload Model B at the cheaper tier clears your quality bar." That "right model for the task, proven with numbers" judgement is exactly what this project lets me demonstrate — I ran the identical app and evals across providers.
+
+---
+
+## Update — governance, multi-agent & observability (added after the core build)
+
+The core build above is the single-agent system. I later added an **opt-in governed multi-agent mode** plus production-shaped controls, and — importantly — I measured whether it actually helped. This section is the honest story of that, which is itself good interview material.
+
+### What got added
+- **Multi-agent pipeline** (`src/agents.py`, `ONCALL_MODE=multi`): `triage (router) → investigator (the original agent) → verifier (independent actor→critic, one revision) → postmortem`. The default stays single-agent so the eval baseline doesn't move.
+- **Forced response structure**: in governed mode the answer must carry labelled sections (`Diagnosis / Evidence / Recommended action / Approval`); a missing section triggers a revision.
+- **Configurable guardrails** (`src/guardrails.py` + `guardrails.json`): allowed tools, required citations, required sections, forbidden "I-executed-a-destructive-action" phrases, and a rule that any mention of a destructive action must carry human-approval language. Policy is config, not code.
+- **Full run logging** (`src/trace.py` → `logs/run-<id>.jsonl`): every run (single or multi) records reasoning, each action + observation, the verifier verdict, the guardrail result, and the final answer.
+- **Live visualizer** (`viz/`): a dependency-free SSE web app that streams the whole trajectory in real time.
+
+### The honest result (say this in an interview)
+Governed multi-agent mode held the gate at **12/15 = 80% (OPEN)** on Anthropic — **the same headline as single-agent**. It did **not** raise the score. The verifier reliably *catches* the over-claim (e.g. the `payments` "rising → degraded" draft), but a single revision sometimes **over-corrects into hedging** that the strict judge also fails, and there's run-to-run noise. **The multi-agent value here is governance and observability — structure, an independent safety check, explicit policy, audit logs, postmortems — not a higher accuracy number.** A real accuracy delta would need a much larger eval to detect; I won't claim one from 15 cases.
+
+> **Interviewer:** *"Why multi-agent if it didn't improve the score?"*
+> **You:** Honestly, on this suite it didn't move accuracy — and I won't pretend otherwise on 15 cases. What it buys is *governance*: an independent model checking grounding/safety before a human sees the answer, an explicit policy file, a forced response shape, and a full audit log. Those are reliability and trust properties, which matter more than a fractional accuracy bump for an on-call tool. The single agent is still the default precisely because more agents = more cost and coordination for no measured accuracy gain here.
+
+> **Interviewer:** *"Your verifier 'over-corrected into hedging.' What does that teach you?"*
+> **You:** That a critic tuned only to catch over-claims will push the actor toward weaselly "I can't be sure" answers — which are *also* wrong for on-call, where you need a position. The fix isn't a louder critic; it's a better-calibrated rubric (penalise both over-claim *and* unhelpful hedging) and probably a second revision budget. It's the classic actor-critic failure mode, and I caught it because I measured it.
+
+> **Interviewer:** *"How do you keep the verifier from just agreeing with the answer?"*
+> **You:** Independence. The verifier runs on a *different* model than the one that wrote the answer (`JUDGE_PROVIDER`/`JUDGE_MODEL`) — the same anti-self-grading discipline as my eval judge. If an independent model isn't available it falls back to the answering model and the run **explicitly reports that independence was lost**, in the UI and the log, rather than quietly self-grading.
+
+> **Interviewer:** *"Guardrails in a prompt vs in code?"*
+> **You:** Both, in layers. The prompt asks for good behaviour; the read-only tools make destructive actions impossible by construction; and `guardrails.json` is an explicit, inspectable policy checked on every answer that forces a revision on violation. Prompt = guidance, code/policy = guarantee. A reviewer can read the policy file and know exactly what's enforced.

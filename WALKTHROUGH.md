@@ -99,6 +99,18 @@ I could make all three green. I chose not to, because **an eval that only contai
 
 ---
 
+## Then I went further: seeing it, and governing it
+
+Two more things I added because they're exactly what my background pushes me toward — *visibility* and *control*.
+
+**A live visualizer (`viz/`).** A dependency-free web app that streams a run in real time: RAG → each decision → every tool call with its args and observation → the cited answer. You can *watch* the agent think, and watch a cheap model take more steps (or go wrong) than a strong one on the same question. For someone who spent years staring at dashboards during incidents, building a "dashboard for the agent" was the obvious move.
+
+**An opt-in governed multi-agent mode (`ONCALL_MODE=multi`).** The single agent is still the default — I didn't want to add agents for show. But the governed pipeline wraps it in three more roles to demonstrate a real pattern: `triage → investigator → verifier → postmortem`. On top of that: a **forced response structure** (Diagnosis / Evidence / Recommended action / Approval), **configurable guardrails** in a policy file (`guardrails.json`), an **independent verifier** (a *different* model checks grounding + safety before a human sees the answer — and if no independent model is available it *says so* rather than self-grading), and **a JSONL audit log of every run** (reasoning, actions, observations, verdicts).
+
+And here's the honest part, because it's the most important: **multi-agent mode held the eval at the same 80% as the single agent. It did not raise the score.** The verifier reliably catches the over-claim (it flags the `payments` "rising → degraded" draft every time), but a single revision sometimes over-corrects into hedging that the strict judge *also* fails. So I don't sell it as "more agents = better answers." Its value is **governance and observability** — structure, an independent safety gate, explicit policy, audit trails — not accuracy. Claiming an accuracy win from 15 cases would be exactly the kind of unverified "it's probably better" I built this whole project to avoid.
+
+---
+
 ## If I took this to production next, in priority order
 
 1. **Fix the tool, not the model** — give `get_metric` real thresholds / anomaly logic so "rising" means something. (Biggest correctness win, and the most on-brand for my background.)
@@ -114,6 +126,8 @@ I could make all three green. I chose not to, because **an eval that only contai
 > - **[`src/agent.py`](./src/agent.py)** — the agent loop. ~30 lines; the whole control flow is here.
 > - **[`src/llm.py`](./src/llm.py)** — the provider abstraction (Anthropic vs OpenAI/OpenRouter tool formats in one place).
 > - **[`evals/run_evals.py`](./evals/run_evals.py)** — how I prove quality: judge + tool-choice + safety + an honest gate.
+> - **`python -m viz.server`** — open http://localhost:8000 and *watch* a run unfold (try the "multi-agent" toggle).
+> - **[`src/agents.py`](./src/agents.py)** + **[`guardrails.json`](./guardrails.json)** — the opt-in governed pipeline and the editable safety policy.
 > - **This file** — *why* each of those looks the way it does.
 >
 > The one thing I'd want you to take away: I treat an AI system the way I treat a production system — **ground it, constrain its blast radius, and measure it honestly.** That's the observability discipline, pointed at a new kind of system.
