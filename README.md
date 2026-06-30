@@ -47,11 +47,16 @@ export OPENROUTER_API_KEY="sk-or-..."          # or ANTHROPIC_API_KEY / OPENAI_A
 python app.py                 # interactive CLI — try: checkout is throwing 5xx, what do I do?
 python -m evals.run_evals     # scorecard + ship gate over 15 labelled incidents
 python mcp_server/server.py   # expose the 5 tools over MCP (stdio)
+python -m viz.server          # live visualizer → open http://localhost:8000
 
 # swap the brain any time:  export PROVIDER=anthropic | openai | openrouter
 ```
 
 The eval **judge** is pinned to a strong, fixed model (default `anthropic/claude-sonnet-4-5`) so it isn't grading its own work and the score is stable run-to-run. Override with `JUDGE_PROVIDER` / `JUDGE_MODEL`.
+
+### Watch a run, live
+
+`python -m viz.server` (then open **http://localhost:8000**) is a tiny, **dependency-free** web app that streams the agent's trajectory in real time over Server-Sent Events. Type a question and watch the whole flow at a glance: **RAG retrieval → each model decision → read-only tool calls (with args + observations) → the loop → the final cited answer.** It's the clearest way to *see* how an agent thinks — and to watch a cheaper model take more steps (or go wrong) than a stronger one on the same question. The agent stays untouched in normal use: the visualizer hooks an optional `on_event` callback that defaults to off, so the CLI and evals are unaffected.
 
 ## Eval scorecard (real, reproducible)
 

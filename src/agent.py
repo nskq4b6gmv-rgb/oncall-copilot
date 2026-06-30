@@ -1,3 +1,4 @@
+import re
 from src import retriever, tools, config
 
 SYSTEM_PROMPT = (
@@ -11,21 +12,41 @@ SYSTEM_PROMPT = (
 )
 
 
-def answer(question, client):
+def _sources(context):
+    # Pull the [source] tags the retriever prefixed onto each chunk.
+    return sorted(set(re.findall(r"\[([^\]\n]+)\]", context)))
+
+
+def answer(question, client, on_event=None):
+    # on_event(dict) is an optional trace hook (used by the live visualizer).
+    # It defaults to None so the CLI and evals are completely unaffected.
+    def emit(kind, **data):
+        if on_event:
+            on_event({"type": kind, **data})
+
+    emit("start", question=question)
     context = retriever.retrieve(question)                 # RAG step
+    emit("rag", found=bool(context), sources=_sources(context), context_chars=len(context))
     log = [{"type": "user",
             "text": f"Question: {question}\n\nCONTEXT:\n{context or '(none found)'}"}]
 
-    for _ in range(config.MAX_AGENT_STEPS):
+    for step in range(1, config.MAX_AGENT_STEPS + 1):
+        emit("llm_request", step=step)
         resp = client.complete(log, system=SYSTEM_PROMPT, tools=tools.TOOLS)
+        emit("llm_response", step=step, text=resp["text"],
+             tool_calls=[{"name": c["name"], "args": c["args"]} for c in resp["tool_calls"]])
         if resp["tool_calls"]:
             log.append({"type": "assistant_tools", "calls": resp["tool_calls"]})
             results = []
             for call in resp["tool_calls"]:
+                emit("tool_call", step=step, name=call["name"], args=call["args"])
                 out = tools.run_tool(call["name"], call["args"])
                 print(f"   ↳ tool: {call['name']}({call['args']}) -> {out[:80]}...")
+                emit("tool_result", step=step, name=call["name"], content=out)
                 results.append({"id": call["id"], "name": call["name"], "content": out})
             log.append({"type": "tool_results", "results": results})
             continue                                        # loop again with new evidence
+        emit("final", text=resp["text"], steps=step)
         return resp["text"]                                 # no tool call = final answer
+    emit("stopped", steps=config.MAX_AGENT_STEPS)
     return "Stopped after max steps without a grounded answer."
