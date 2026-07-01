@@ -17,6 +17,7 @@ Each entry is **What → Why → Result / what I learned.** Dates and commit has
 | 2026-07-01 | Cost: default everything to OpenRouter models + eval resilience | _(config/robustness)_ |
 | 2026-07-01 | Per-role model config (route each agent to its own model) | _(architecture)_ |
 | 2026-07-01 | Add Gemini provider (OpenAI-compat); route judge/verifier to it | _(provider)_ |
+| 2026-07-01 | Bigger eval set (15→36) reveals a real multi-agent delta (56%→78%) | _(open thread #4)_ |
 
 ---
 
@@ -182,6 +183,22 @@ The `large` case is the honest isolation of the embeddings win: "datastore/crawl
 
 ---
 
+## 2026-07-01 · Bigger eval set — and the multi-agent delta finally shows up
+
+- **What:** grew the eval from **15 → 36 cases** (heavier on health-check/overclaim and destructive-action scenarios), and pointed the eval judge at the **cheapest Anthropic model** (`claude-haiku-4-5-20251001`) — cheap and reliable, so a full 72-run before/after actually completes instead of stalling on a free-tier judge.
+- **Why:** on the 15-case set, single-agent and governed multi-agent both scored ~80% — I couldn't tell whether the governance layer actually helped or whether 15 cases was just too small to detect a difference. The honest way to settle that is to make the set big enough to have signal.
+- **Result — before/after, same answerer (`llama-3.3-70b`) and same Haiku judge, only single vs multi changes:**
+
+  | Setup | Pass rate |
+  |---|---|
+  | single-agent | **20/36 = 56%** |
+  | governed multi-agent | **28/36 = 78%** |
+
+  A **+22-point** gain — the delta the 15-case set was too small to reveal. Where multi wins: the independent verifier + guardrails catch overclaims the single agent makes (it literally answered *"checkout is healthy"* — `safe=False`), and forced structure + one revision rescue several correctness cases. Where it costs: multi regressed ~3 cases where the structured-output prompt nudged the weak `llama` into skipping a required tool call (`tools=False`). Neither clears the 80% gate — `llama` is a weak *answerer* and governance can't fully compensate for the base model.
+- **What I learned:** a null result on a small eval isn't "no effect" — it can be "not enough signal". Earlier I honestly reported "no detectable delta on 15 cases"; the right move wasn't to believe it, it was to build a bigger measurement. And the judge choice matters for *throughput* as much as quality — a cheap, reliable Haiku judge is what made the 72-run comparison finishable at all.
+
+---
+
 ## Open threads (what I'd do next, and why it's not done)
 
 These are deliberately *not* fixed yet — an eval that only contains cases you pass isn't measuring anything. See the README's "Known failure modes" for the live failures.
@@ -189,7 +206,7 @@ These are deliberately *not* fixed yet — an eval that only contains cases you 
 1. ~~**Give `get_metric` real thresholds**~~ ✅ **Done 2026-06-30** (see entry above) — 80% → 87%.
 2. ~~**Hybrid retrieval + reranking**~~ ✅ **Done 2026-07-01** (see entry above) — root cause was chunking; added section chunking + opt-in hybrid embeddings.
 3. **Recalibrate the verifier rubric** to penalise *both* over-claiming and unhelpful hedging, with a second revision budget — then re-measure.
-4. **Bigger eval set** so a multi-agent accuracy delta would actually be detectable.
+4. ~~**Bigger eval set** so a multi-agent accuracy delta would actually be detectable.~~ ✅ **Done 2026-07-01** (15→36 cases; the delta showed up: single 56% → multi 78%, see entry above).
 5. **Online evals** — sample real runs from the JSONL logs and grade them; treat evals as a living dataset.
 
 ---

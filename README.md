@@ -48,7 +48,7 @@ export PROVIDER=openrouter
 export OPENROUTER_API_KEY="sk-or-..."          # or ANTHROPIC_API_KEY / OPENAI_API_KEY
 
 python app.py                 # interactive CLI — try: checkout is throwing 5xx, what do I do?
-python -m evals.run_evals     # scorecard + ship gate over 15 labelled incidents
+python -m evals.run_evals     # scorecard + ship gate over 36 labelled incidents
 python mcp_server/server.py   # expose the 5 tools over MCP (stdio)
 python -m viz.server          # live visualizer → open http://localhost:8000
 
@@ -97,7 +97,7 @@ export MODEL_VERIFIER="qwen/qwen3-coder:free"
 export MODEL_JUDGE="openai/gpt-4o-mini"     # a few cents; reliable in the 15x eval loop
 ```
 
-> **On free tiers (learned the hard way):** free models throttle aggressively — fine for a single run or a demo, but a full 15-case eval fires enough calls to hit the wall and stall on a `:free` judge. Rather than fight the limit, I route the judge/verifier to **Gemini** (`PROVIDER_JUDGE=gemini`, `MODEL_JUDGE=gemini-flash-latest`) — a steadier free option that's tool-capable and independent of the OpenRouter answerer. And the pipeline **degrades gracefully** when a role's model is unavailable: triage falls back to "incident", verification and postmortem are skipped with a note, instead of crashing the run.
+> **On free tiers (learned the hard way):** free models throttle aggressively — fine for a single run or a demo, but a full 36-case eval fires enough calls to hit the wall and stall on a `:free` judge. Rather than fight the limit, I route the judge/verifier to **Gemini** (`PROVIDER_JUDGE=gemini`, `MODEL_JUDGE=gemini-flash-latest`) — a steadier free option that's tool-capable and independent of the OpenRouter answerer. And the pipeline **degrades gracefully** when a role's model is unavailable: triage falls back to "incident", verification and postmortem are skipped with a note, instead of crashing the run.
 
 ### Watch a run, live
 
@@ -120,24 +120,26 @@ On top of that, the governed path adds three controls you'd actually want in pro
 - **Configurable guardrails** — policy lives in [`guardrails.json`](./guardrails.json) (allowed tools, required citations, required sections, forbidden "I-did-a-destructive-thing" phrases, approval-language requirement). `src/guardrails.py` checks every answer and forces a revision on any violation.
 - **Full run logging** — every run (single *or* multi) writes a JSONL trace to `logs/run-<id>.jsonl`: reasoning, each action + observation, verifier verdict, guardrail result, final answer. Observability for the agent itself.
 
-**Honest result:** on this 15-case suite, governed multi-agent mode holds the gate at **12/15 = 80% (OPEN)** on Anthropic — the **same headline number as single-agent**. It did *not* raise the score. The verifier reliably catches the over-claim (e.g. the `payments` "rising" draft), but a single revision sometimes *over-corrects into hedging* that the strict judge also fails, and there's run-to-run noise. **So the multi-agent value here is governance and observability — structure, an independent safety check, explicit policy, audit logs, postmortems — not higher accuracy.** A real accuracy delta would need a much larger eval to detect; I'm not going to claim one from 15 cases.
+**Honest result — and an honest update.** On the *original 15-case* suite, single-agent and governed multi-agent both landed at ~80%: I couldn't detect a difference, and I said so rather than claim one. That bugged me, so I built a **36-case** suite (see [`IMPROVEMENTS.md`](./IMPROVEMENTS.md)) to find out whether the difference was absent or just too small to measure. It was real: on the bigger, harder set, governed multi-agent beats single-agent **56% → 78% (+22 points)**. The verifier and guardrails catch overclaims the single agent makes — in one case it flatly answered *"checkout is healthy"* when it wasn't — and the forced structure + one revision rescue several correctness cases. It isn't free: multi regressed a few cases where the structured prompt nudged the weak `llama` into skipping a required tool call. But the net is a clear, measured win, on top of the governance and observability (independent safety check, explicit policy, audit logs, postmortems).
 
 ## Eval scorecard (real, reproducible)
 
-15 labelled incidents. Each case scores three things: **correct** (LLM-as-judge: does the answer reflect the key facts?), **tools** (did it call the live-data tool the case requires?), and **safe** (did it avoid a forbidden statement, e.g. falsely calling a service healthy?). Gate = **80%** (not 100% — models are non-deterministic).
+**36 labelled incidents.** Each case scores **correct** (LLM-as-judge: does the answer reflect the key facts?), **tools** (did it call the live-data tool the case needs?), and **safe** (did it avoid a forbidden statement, e.g. falsely calling a service healthy?). Gate = **80%** (not 100% — models are non-deterministic).
 
-| Answering model | Judge | Pass rate | Gate |
-|---|---|---|---|
-| `anthropic/claude-sonnet-4-5` (single) | `claude-sonnet-4-5` | **15/15 = 100%** ‡ | ✅ **OPEN** |
-| `meta-llama/llama-3.3-70b-instruct` (OpenRouter, single) | `claude-sonnet-4-5` | **9/15 = 60%** † | ❌ **BLOCKED** |
-| `anthropic/claude-sonnet-4-5` (governed multi-agent) | `claude-sonnet-4-5` | **12/15 = 80%** † | ✅ **OPEN** |
-| `meta-llama/llama-3.3-70b-instruct` (OpenRouter) | `gemini-flash-latest` | **3/15 = 20%** ✦ | ❌ **BLOCKED** |
+The headline is a **before/after** on the bigger set, holding the answerer (OpenRouter `llama-3.3-70b`) and the judge (cheapest Anthropic, `claude-haiku-4-5`) fixed — so the only thing that changes is single vs. governed multi-agent:
 
-✦ **All-free/cheap stack, measured 2026-07-01 — the honest failure case.** Two separate causes: (1) **6 of 15 cases couldn't be judged** — the free judge got throttled mid-run (the runner retries, then marks `[ERR]` rather than crashing) — so it's really **3 passed / 6 failed / 6 unjudged**, ~33% of the cases I could actually score. (2) **The judge is a variable:** the same llama answerer scored ~60–67% under the Sonnet judge but ~33% under the stricter Gemini judge — *changing only the grader* swung the score. Underneath both, llama is far weaker than Sonnet as the *answerer*. Lesson: free tiers can't sustain a full eval, and you have to hold the judge fixed to compare answerers fairly.
-‡ Reflects two fixes (see [`IMPROVEMENTS.md`](./IMPROVEMENTS.md)): [`get_metric` thresholds](./IMPROVEMENTS.md) (80%→87%) and [section chunking](./IMPROVEMENTS.md) (87%→this run). **Honest caveat:** this was a single run — the *durable* gain is the db-latency case flipping to PASS (chunking; provable deterministically via `python -m evals.retrieval_compare`); the run hit a clean 15/15 partly because the noisy `capital of France` refusal case also passed this time. Expect ~14/15 typically, not a reliable 100%.
-† The OpenRouter and multi-agent rows were measured *before* these fixes and haven't been re-run yet.
+| Setup (answerer `llama-3.3-70b` · judge `claude-haiku-4-5`) | Pass rate | Gate |
+|---|---|---|
+| single-agent | **20/36 = 56%** | ❌ BLOCKED |
+| **governed multi-agent** | **28/36 = 78%** | ❌ BLOCKED |
 
-**This is the whole point of the harness:** the strong model clears the bar; the cheap open model doesn't — concrete, measured model-selection evidence rather than a brand opinion. Numbers wobble run-to-run (Sonnet sits *right at* 80%, not comfortably above it; Llama ranged 60–67% across runs). That variance is *why* the gate is a per-suite threshold, not a 100%-every-run rule.
+**+22 points from the governance layer** — the accuracy delta the earlier 15-case set was simply too small to reveal. Neither clears the 80% gate because `llama` is a weak *answerer*; governance helps a lot but can't fully compensate for the base model.
+
+> *Reproduce:* the scorecard uses the cheapest Anthropic model as a steadier judge — `export JUDGE_PROVIDER=anthropic MODEL_JUDGE=claude-haiku-4-5-20251001` (needs `ANTHROPIC_API_KEY`; a few cents for the whole suite). The committed default judge is a free OpenRouter model so a fresh clone runs without an Anthropic key — but free tiers throttle on a 36-case loop, so a steadier judge is worth it.
+
+**Earlier runs (original 15-case set), for reference.** With **Sonnet answering *and* judging**, single-agent reached 15/15 after the `get_metric` + chunking fixes — Sonnet is a strong answerer. The all-free stack (llama answering, Gemini judging) landed ~3/15 with several cases lost to free-tier throttling. Two standing lessons: **the judge is itself a variable** (hold it fixed to compare answerers), and **the answerer dominates** (most of the high scores were Sonnet *answering*, not just judging).
+
+**The point of the harness:** it turns "which setup?" — strong answerer vs weak, single vs governed, one judge vs another — into a measured decision rather than a vibe. Numbers wobble run-to-run, which is *why* the gate is a per-suite threshold, not a 100%-every-run rule.
 
 ### Known failure modes (why the gate isn't a comfortable pass)
 
