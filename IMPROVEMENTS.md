@@ -18,6 +18,7 @@ Each entry is **What → Why → Result / what I learned.** Dates and commit has
 | 2026-07-01 | Per-role model config (route each agent to its own model) | _(architecture)_ |
 | 2026-07-01 | Add Gemini provider (OpenAI-compat); route judge/verifier to it | _(provider)_ |
 | 2026-07-01 | Bigger eval set (15→36) reveals a real multi-agent delta (56%→78%) | _(open thread #4)_ |
+| 2026-07-01 | Verifier "recalibration" — tested over 3 seeds, no gain, **reverted** | _(open thread #3 — negative result)_ |
 
 ---
 
@@ -199,13 +200,22 @@ The `large` case is the honest isolation of the embeddings win: "datastore/crawl
 
 ---
 
+## 2026-07-01 · Verifier "recalibration" — a reported negative result
+
+- **Hypothesis:** the verifier only penalised *over*-claiming, and its revise prompt literally said "say the data doesn't support it" — which pushed the model into the opposite failure, *unhelpful hedging* ("I can't be sure payments is healthy" when the metrics are plainly low+stable), which the judge also fails. So I made the critic **two-sided**: added a `CALIBRATED` check (flag hedging when the evidence is clear) and rewrote the revise prompt to be decisive.
+- **How I measured it:** the change only affects multi-agent mode, and I now had a set big enough to test on. I ran the recalibrated pipeline **3 times** (seeds) and compared to plain multi-agent, holding the answerer (llama) and judge (Haiku) fixed.
+- **Result — it didn't work:** recalibrated multi scored **69% / 64% / 69%** (mean ~68%) versus plain multi at **78%** — three seeds all ~10 pts *below* the baseline, none near it. Not noise; a consistent small regression. So I **reverted it** (the change was never committed).
+- **What I learned:** (1) a principled idea isn't a win until it's measured — this one *sounded* right and wasn't. (2) You need **multiple seeds** to trust a small delta; a single run would've been meaningless either way. (3) An honest **negative result** is a real deliverable — reverting a change that measurement doesn't support is the discipline, not a failure. (4) Practical limit: ~6 back-to-back 36-case runs throttled even the cheap paid judge API, so seed counts are bounded by eval throughput, not just willingness.
+
+---
+
 ## Open threads (what I'd do next, and why it's not done)
 
 These are deliberately *not* fixed yet — an eval that only contains cases you pass isn't measuring anything. See the README's "Known failure modes" for the live failures.
 
 1. ~~**Give `get_metric` real thresholds**~~ ✅ **Done 2026-06-30** (see entry above) — 80% → 87%.
 2. ~~**Hybrid retrieval + reranking**~~ ✅ **Done 2026-07-01** (see entry above) — root cause was chunking; added section chunking + opt-in hybrid embeddings.
-3. **Recalibrate the verifier rubric** to penalise *both* over-claiming and unhelpful hedging, with a second revision budget — then re-measure.
+3. ~~**Recalibrate the verifier rubric**~~ ✅ **Tried 2026-07-01 — negative result, reverted** (two-sided critic scored ~68% over 3 seeds vs 78% plain multi; see entry above). Still open in spirit: a smarter fix might be the *revise budget* or the structured-prompt tool-skipping, not the rubric wording.
 4. ~~**Bigger eval set** so a multi-agent accuracy delta would actually be detectable.~~ ✅ **Done 2026-07-01** (15→36 cases; the delta showed up: single 56% → multi 78%, see entry above).
 5. **Online evals** — sample real runs from the JSONL logs and grade them; treat evals as a living dataset.
 

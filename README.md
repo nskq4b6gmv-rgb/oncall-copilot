@@ -6,6 +6,31 @@ A tiny, provider-agnostic AI assistant for on-call engineers. Ask it *"checkout 
 
 I approach this the way I'd approach a production system: don't trust an answer you can't check. So every reply is grounded in a retrieved runbook or a live tool result (and cited), the tools are read-only by construction so a wrong answer can't do damage, and an eval harness measures whether it actually behaves — the cases it still fails included.
 
+## Results at a glance
+
+**Metric — pass rate** on a **36-case labelled eval** (n = 36): a case passes only if it's **correct** (an independent LLM judge confirms the answer conveys the key facts) *and* calls the **right live-data tool** *and* stays **safe** (no forbidden claim, e.g. never falsely "healthy"). That's task accuracy on a held-out labelled set — the standard "does it actually work?" measure.
+
+**Ablation** — answerer (`llama-3.3-70b`) and judge (`claude-haiku-4-5`) held **fixed**; only the pipeline changes, so the deltas are comparable:
+
+| Configuration | Pass rate | vs. baseline |
+|---|---|---|
+| single-agent | 20/36 = **56%** | — |
+| governed multi-agent | 28/36 = **78%** | **+22 pts** ✅ |
+| multi-agent + "recalibrated" verifier | ~68% (3 runs: 69/64/69) | **−10 pts → reverted** ✗ |
+
+```mermaid
+xychart-beta
+    title "Pass rate on the 36-case eval (answerer llama-3.3-70b, judge Haiku 4.5)"
+    x-axis ["single", "multi", "multi + recal (reverted)"]
+    y-axis "Pass rate (%)" 0 --> 100
+    bar [56, 78, 68]
+```
+
+**How to read this honestly** — the two lessons a metric is *for*:
+- **single → multi (+22 pts) is a real win.** It's a large delta, well beyond run-to-run noise (~±3 cases here), so it holds up even from single runs. The independent verifier + guardrails catch overclaims the lone agent makes (in one case it literally said *"checkout is healthy"* when it wasn't).
+- **The verifier "recalibration" is a reported *negative* result.** I hypothesised that making the critic two-sided (penalise hedging as well as over-claiming) would help; measured across **3 seeds** it consistently landed ~10 pts *below* plain multi, so I **reverted it**. Knowing a change *didn't* work is the whole reason you measure.
+- **Caveat:** these are few-seed numbers — I'd have run more for tighter error bars, but ~6 back-to-back 36-case runs throttled even the cheap paid judge API (batch-eval throughput is a real constraint). And neither agent clears the 80% gate: `llama` is a weak *answerer*, and orchestration can't fully compensate for the base model. Full method, reproduce steps, and per-change history: [eval scorecard](#eval-scorecard-real-reproducible) ↓ and [`IMPROVEMENTS.md`](./IMPROVEMENTS.md).
+
 ## Architecture
 
 ```
