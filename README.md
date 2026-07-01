@@ -129,7 +129,9 @@ On top of that, the governed path adds three production-shaped controls:
 | `anthropic/claude-sonnet-4-5` (single) | `claude-sonnet-4-5` | **15/15 = 100%** ‡ | ✅ **OPEN** |
 | `meta-llama/llama-3.3-70b-instruct` (OpenRouter, single) | `claude-sonnet-4-5` | **9/15 = 60%** † | ❌ **BLOCKED** |
 | `anthropic/claude-sonnet-4-5` (governed multi-agent) | `claude-sonnet-4-5` | **12/15 = 80%** † | ✅ **OPEN** |
+| `meta-llama/llama-3.3-70b-instruct` (OpenRouter) | `gemini-flash-latest` | **3/15 = 20%** ✦ | ❌ **BLOCKED** |
 
+✦ **All-free/cheap stack, measured 2026-07-01 — the honest failure case.** Two separate causes: (1) **6 of 15 cases errored** on Gemini free-tier `429` (couldn't be judged; the runner retries then marks `[ERR]` rather than crashing) — so it's really **3 passed / 6 failed / 6 errored**, ~33% of the *judged* cases. (2) **The judge is a variable:** the same llama answerer scored ~60–67% under the Sonnet judge but ~33% under the stricter Gemini judge — *changing only the grader* swung the score. Underneath both, llama is far weaker than Sonnet as the *answerer*. Lesson: free tiers can't sustain a 15-case eval, and you must hold the judge fixed to compare answerers fairly.
 ‡ Reflects two fixes (see [`IMPROVEMENTS.md`](./IMPROVEMENTS.md)): [`get_metric` thresholds](./IMPROVEMENTS.md) (80%→87%) and [section chunking](./IMPROVEMENTS.md) (87%→this run). **Honest caveat:** this was a single run — the *durable* gain is the db-latency case flipping to PASS (chunking; provable deterministically via `python -m evals.retrieval_compare`); the run hit a clean 15/15 partly because the noisy `capital of France` refusal case also passed this time. Expect ~14/15 typically, not a reliable 100%.
 † The OpenRouter and multi-agent rows were measured *before* these fixes and haven't been re-run yet.
 
