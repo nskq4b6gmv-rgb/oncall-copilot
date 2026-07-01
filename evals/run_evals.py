@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from src import llm, agent, agents, tools, config
+from src import llm, agent, agents, config
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 client = llm.get_role_client("investigator")  # the system under test (answers questions)
@@ -34,52 +34,72 @@ def judge(answer_text, key_facts):
     return bool(m) and m.group(1) == "YES"
 
 
+def _eval_one(row):
+    # Score one case. Tool calls are captured via the on_event hook (per-case, thread-safe)
+    # instead of monkey-patching a global — so cases can run concurrently. Retries so one
+    # flaky provider call (429/timeout) doesn't lose the case.
+    called = []
+
+    def on_ev(ev):
+        if ev.get("type") == "tool_call":
+            called.append(ev["name"])
+
+    last_err = None
+    for attempt in range(3):
+        try:
+            called.clear()
+            if config.ONCALL_MODE == "multi":               # triage->investigate->verify->revise
+                ans = agents.run(row["question"], client, on_event=on_ev, make_postmortem=False)["answer"]
+            else:
+                ans = agent.answer(row["question"], client, on_event=on_ev)
+            correct = judge(ans, row["key_facts"])
+            required = [t for t in row["expect_tools"] if t in LIVE_TOOLS]
+            tools_ok = all(t in called for t in required)   # only hard-require live-data tools
+            safe = all(p.lower() not in ans.lower() for p in row["must_not_say"])
+            return {"q": row["question"], "correct": correct, "tools_ok": tools_ok,
+                    "safe": safe, "ok": correct and tools_ok and safe, "err": None}
+        except Exception as e:
+            last_err = e
+    return {"q": row["question"], "ok": False, "err": f"{type(last_err).__name__}: {str(last_err)[:45]}"}
+
+
+def _print_row(r):
+    if r.get("err"):
+        print(f"[ERR ] {r['q'][:45]:45}  {r['err']}")
+    else:
+        print(f"[{'PASS' if r['ok'] else 'FAIL'}] {r['q'][:45]:45}  "
+              f"correct={r['correct']} tools={r['tools_ok']} safe={r['safe']}")
+
+
 def run():
     rows = [json.loads(l) for l in open(os.path.join(ROOT, "evals", "dataset.jsonl"))]
-    passed = 0
-    errored = 0
-    for row in rows:
-        # Instrument which tools the agent called; run with retries so one flaky
-        # free-tier call (429/timeout) doesn't crash the whole suite.
-        called = []
-        orig = tools.run_tool
-        tools.run_tool = lambda n, a: called.append(n) or orig(n, a)
-        try:
-            ans, correct = None, False
-            for attempt in range(3):
-                try:
-                    called.clear()
-                    if config.ONCALL_MODE == "multi":       # triage->investigate->verify->revise
-                        ans = agents.run(row["question"], client, make_postmortem=False)["answer"]
-                    else:
-                        ans = agent.answer(row["question"], client)
-                    correct = judge(ans, row["key_facts"])
-                    break
-                except Exception as e:                      # transient provider error -> retry
-                    if attempt == 2:
-                        raise
-                    print(f"   (retry {attempt + 1}: {type(e).__name__})")
-        except Exception as e:
-            errored += 1
-            print(f"[ERR ] {row['question'][:45]:45}  {type(e).__name__}: {str(e)[:45]}")
-            continue
-        finally:
-            tools.run_tool = orig
+    # EVAL_WORKERS>1 runs cases concurrently (they're independent I/O-bound API calls).
+    # Speeds up wall-clock a lot — but raises the request rate, so keep it modest (3-5) to
+    # stay under provider rate limits; too high just triggers 429s and retries.
+    workers = max(1, int(os.getenv("EVAL_WORKERS", "1")))
+    results = []
+    if workers > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        print(f"(running {len(rows)} cases, {workers} workers)")
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_eval_one, row) for row in rows]
+            for fut in as_completed(futures):
+                r = fut.result()
+                results.append(r)
+                _print_row(r)
+    else:
+        for row in rows:
+            r = _eval_one(row)
+            results.append(r)
+            _print_row(r)
 
-        # Only HARD-require live-data tools; get_runbook is RAG-satisfiable (see above).
-        required = [t for t in row["expect_tools"] if t in LIVE_TOOLS]
-        tools_ok = all(t in called for t in required)
-        safe = all(p.lower() not in ans.lower() for p in row["must_not_say"])  # false-confirmation / guardrail
-        ok = correct and tools_ok and safe
-        passed += ok
-        print(f"[{'PASS' if ok else 'FAIL'}] {row['question'][:45]:45}  "
-              f"correct={correct} tools={tools_ok} safe={safe}")
-
+    passed = sum(1 for r in results if r.get("ok"))
+    errored = sum(1 for r in results if r.get("err"))
     rate = passed / len(rows)
     print(f"\nAnswering: {getattr(client, 'model', '?')} (mode={config.ONCALL_MODE})  |  "
           f"Judge: {getattr(judge_client, 'model', '?')}")
     print(f"Pass rate: {passed}/{len(rows)} = {rate:.0%}"
-          + (f"   ({errored} case(s) errored out — likely free-tier rate limits)" if errored else ""))
+          + (f"   ({errored} case(s) errored out — likely rate limits)" if errored else ""))
     # Ship gate: a per-suite threshold, NOT 100%-every-run (models are non-deterministic).
     print("GATE:", "OPEN" if rate >= 0.8 else "BLOCKED (fix before shipping)")
 

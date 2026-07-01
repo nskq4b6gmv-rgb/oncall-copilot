@@ -10,26 +10,28 @@ I approach this the way I'd approach a production system: don't trust an answer 
 
 **Metric — pass rate** on a **36-case labelled eval** (n = 36): a case passes only if it's **correct** (an independent LLM judge confirms the answer conveys the key facts) *and* calls the **right live-data tool** *and* stays **safe** (no forbidden claim, e.g. never falsely "healthy"). That's task accuracy on a held-out labelled set — the standard "does it actually work?" measure.
 
-**Ablation** — answerer (`llama-3.3-70b`) and judge (`claude-haiku-4-5`) held **fixed**; only the pipeline changes, so the deltas are comparable:
+**Ablation** — judge (`claude-haiku-4-5`) held **fixed** at n = 36. Two levers move the score: the **pipeline** (rows 1–3, answerer held at the small open model) and the **answerer** (row 4):
 
-| Configuration | Pass rate | vs. baseline |
-|---|---|---|
-| single-agent | 20/36 = **56%** | — |
-| governed multi-agent | 28/36 = **78%** | **+22 pts** ✅ |
-| multi-agent + "recalibrated" verifier | ~68% (3 runs: 69/64/69) | **−10 pts → reverted** ✗ |
+| Answerer | Pipeline | Pass rate | vs. row 1 |
+|---|---|---|---|
+| `llama-3.3-70b` (small, open) | single-agent | 20/36 = **56%** | — |
+| `llama-3.3-70b` | governed multi-agent | 28/36 = **78%** | **+22 pts** ✅ |
+| `llama-3.3-70b` | multi + "recalibrated" verifier | ~68% (3 runs: 69/64/69) | **−10 pts → reverted** ✗ |
+| **Claude Haiku 4.5** (small, frontier) | single-agent | ~**91%** (3 runs: 92/89/92) | **+34 pts** ✅ **OPEN** |
 
 ```mermaid
 xychart-beta
-    title "Pass rate on the 36-case eval (answerer llama-3.3-70b, judge Haiku 4.5)"
-    x-axis ["single", "multi", "multi + recal (reverted)"]
+    title "Pass rate, 36-case eval (judge = Haiku 4.5, n=36)"
+    x-axis ["llama single", "llama multi", "llama +recal", "Haiku single"]
     y-axis "Pass rate (%)" 0 --> 100
-    bar [56, 78, 68]
+    bar [56, 78, 68, 90]
 ```
 
-**How to read this honestly** — the two lessons a metric is *for*:
-- **single → multi (+22 pts) is a real win.** It's a large delta, well beyond run-to-run noise (~±3 cases here), so it holds up even from single runs. The independent verifier + guardrails catch overclaims the lone agent makes (in one case it literally said *"checkout is healthy"* when it wasn't).
-- **The verifier "recalibration" is a reported *negative* result.** I hypothesised that making the critic two-sided (penalise hedging as well as over-claiming) would help; measured across **3 seeds** it consistently landed ~10 pts *below* plain multi, so I **reverted it**. Knowing a change *didn't* work is the whole reason you measure.
-- **Caveat:** these are few-seed numbers — I'd have run more for tighter error bars, but ~6 back-to-back 36-case runs throttled even the cheap paid judge API (batch-eval throughput is a real constraint). And neither agent clears the 80% gate: `llama` is a weak *answerer*, and orchestration can't fully compensate for the base model. Full method, reproduce steps, and per-change history: [eval scorecard](#eval-scorecard-real-reproducible) ↓ and [`IMPROVEMENTS.md`](./IMPROVEMENTS.md).
+**How to read this honestly** — the lessons a metric is *for*:
+- **The answerer is the biggest lever.** Swapping the small *open* model for a small *frontier* one (Haiku) beat *everything* orchestration did to the weak model — +34 pts, and it's the only config to clear the 80% gate. On its own. *(Caveat: that row is self-graded — Haiku answered and judged — so it's a touch optimistic; but +34 is far beyond any self-preference bias, and 2 of its 3 fails are objective `safe` checks. The llama rows use the same Haiku judge but aren't self-graded.)*
+- **Orchestration helps a weak model, within limits.** `llama` single → multi is **+22** — real (a large delta, beyond the ~±3-case run noise) — but still under the gate. Governance can't fully compensate for a weak base model.
+- **The "recalibration" is a reported *negative* result.** I hypothesised a two-sided critic would help; across **3 seeds** it sat ~10 pts *below* plain multi, so I **reverted it**. Knowing a change *didn't* work is the whole reason you measure.
+- **Caveat:** few-seed numbers — tighter error bars need more runs, but batch throughput (rate limits) caps that. Full method + per-change history: [eval scorecard](#eval-scorecard-real-reproducible) ↓ and [`IMPROVEMENTS.md`](./IMPROVEMENTS.md).
 
 ## Architecture
 
@@ -98,6 +100,7 @@ Everything is env-driven; nothing hardcodes a vendor. Sensible defaults mean the
 | `RETRIEVAL_MODE` | `keyword` | `keyword` (zero-dep) \| `semantic` \| `hybrid` (keyword + local embeddings; needs `sentence-transformers`, falls back to keyword if absent). |
 | `GUARDRAILS_FILE` | `guardrails.json` | Path to the guardrail policy. |
 | `ONCALL_LOG_DIR` | `logs/` | Where per-run JSONL traces are written. |
+| `EVAL_WORKERS` | `1` | Run eval cases concurrently (thread pool). `4–5` is a big wall-clock win; too high just hits rate limits. |
 | `VIZ_PORT` | `8000` | Port for the live visualizer. |
 
 **Judge/verifier independence (important):** to avoid a model grading its own work, the judge is a *different* model than the answerer. The default is **all-OpenRouter** — answer with `llama-3.3-70b`, judge with `gemma` — so you need **one OpenRouter key and nothing else** (no Anthropic/OpenAI, no extra cost).

@@ -19,6 +19,8 @@ Each entry is **What → Why → Result / what I learned.** Dates and commit has
 | 2026-07-01 | Add Gemini provider (OpenAI-compat); route judge/verifier to it | _(provider)_ |
 | 2026-07-01 | Bigger eval set (15→36) reveals a real multi-agent delta (56%→78%) | _(open thread #4)_ |
 | 2026-07-01 | Verifier "recalibration" — tested over 3 seeds, no gain, **reverted** | _(open thread #3 — negative result)_ |
+| 2026-07-01 | Answerer comparison: Haiku 90% vs llama 56% — the answerer dominates | _(model choice)_ |
+| 2026-07-01 | Parallelized the eval (EVAL_WORKERS, thread pool) | _(harness)_ |
 
 ---
 
@@ -206,6 +208,24 @@ The `large` case is the honest isolation of the embeddings win: "datastore/crawl
 - **How I measured it:** the change only affects multi-agent mode, and I now had a set big enough to test on. I ran the recalibrated pipeline **3 times** (seeds) and compared to plain multi-agent, holding the answerer (llama) and judge (Haiku) fixed.
 - **Result — it didn't work:** recalibrated multi scored **69% / 64% / 69%** (mean ~68%) versus plain multi at **78%** — three seeds all ~10 pts *below* the baseline, none near it. Not noise; a consistent small regression. So I **reverted it** (the change was never committed).
 - **What I learned:** (1) a principled idea isn't a win until it's measured — this one *sounded* right and wasn't. (2) You need **multiple seeds** to trust a small delta; a single run would've been meaningless either way. (3) An honest **negative result** is a real deliverable — reverting a change that measurement doesn't support is the discipline, not a failure. (4) Practical limit: ~6 back-to-back 36-case runs throttled even the cheap paid judge API, so seed counts are bounded by eval throughput, not just willingness.
+
+---
+
+## 2026-07-01 · Which model? — the answerer dominates (measured, not guessed)
+
+- **What:** ran the same 36-case single-agent eval with two *answerers*, judge held fixed at Haiku: the small **open** model (`llama-3.3-70b`) vs a small **frontier** model (**Claude Haiku 4.5**).
+- **Result:** llama **56%** (BLOCKED) vs Haiku **~91%** (3 runs: 92% / 89% / 92%, OPEN) — **+34 pts**, and Haiku is the *only* config to clear the 80% gate, single-agent, no orchestration.
+- **Why it matters:** this is the project's whole thesis — "which model for the task" is a *measurement*. The **answerer is a far bigger lever than the judge or the orchestration**: a small frontier model beat everything governance did to the weak open model (which only reached 78% with the full multi-agent pipeline).
+- **Honest caveats:** (1) the Haiku row is **self-graded** (Haiku answered *and* judged) so it's slightly optimistic — but +34 dwarfs any self-preference bias, and 2 of its 3 fails are objective `safe` checks; the llama rows use the same Haiku judge but aren't self-graded. (2) Found mid-run that the **OpenRouter account is out of credits** (`402`) — that's why llama now errors; the Anthropic side still funds Haiku. (3) Even Haiku still over-claims on 2 safety cases — exactly where an independent verifier could earn its keep on a *competent* answerer (a fairer multi-agent test than the weak-model one).
+
+---
+
+## 2026-07-01 · Parallelized the eval — 4.6× faster
+
+- **What:** `EVAL_WORKERS` runs eval cases through a thread pool — the cases are independent and each is I/O-bound on API calls, so they overlap cleanly. Default `1` (behaviour unchanged).
+- **Gotcha I had to fix first:** the runner captured which tools a case called by globally monkey-patching `tools.run_tool` — not thread-safe (concurrent cases would clobber each other). Moved capture to the per-case **`on_event` hook**, which is both cleaner and concurrency-safe.
+- **Result:** 36 cases in **46s with 5 workers vs 210s single-threaded = 4.6×**, 0 errors (Haiku answerer). Near-linear in workers, as expected for I/O-bound work.
+- **Honest tradeoff:** parallelism raises the *request rate*, so on a rate-limited or out-of-credit account it just triggers more `429`/`402` errors. Keep workers modest (3–5) — it's a speedup when the API has headroom, not a way around limits.
 
 ---
 
