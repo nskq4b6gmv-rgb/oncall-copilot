@@ -78,8 +78,9 @@ Everything is env-driven; nothing hardcodes a vendor. Sensible defaults mean the
   export PROVIDER=openrouter
   export OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct"
   export JUDGE_PROVIDER=openrouter
-  export JUDGE_MODEL="qwen/qwen-2.5-72b-instruct"   # ≠ OPENROUTER_MODEL
+  export JUDGE_MODEL="google/gemma-4-31b-it:free"   # ≠ OPENROUTER_MODEL (verified working)
   ```
+  > **Heads-up on `:free` models:** OpenRouter's free tier is heavily rate-limited and returns `429`s under load — fine for a demo or a few calls, flaky for a full 15-case eval. The OpenRouter client retries `429`s automatically; for reliable eval runs, add OpenRouter credits or use a paid model. (Tested: `google/gemma-4-31b-it:free` responded cleanly; `qwen/qwen3-next-80b-a3b-instruct:free` was rate-limited at test time.)
 - If the judge client can't be built (e.g. no key for its provider), the verifier **falls back to the answering model and reports that independence was lost** — shown on the verifier card in the visualizer and in the run log, never hidden. (Answering *and* judging with the same model — e.g. Anthropic for both — is flagged the same way.)
 
 ### Watch a run, live

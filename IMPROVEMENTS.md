@@ -97,6 +97,7 @@ This was a big one, and the most instructive, because part of it **didn't do wha
 - **What:** The verifier/judge model is configurable (`JUDGE_PROVIDER` / `JUDGE_MODEL`) and works on a **single OpenRouter key** (point it at a different OpenRouter model). The pipeline emits a `verifier_info` event with an `independent` flag; if no independent model can be built it **falls back to the answering model and says so** — in the visualizer and the run log.
 - **Why:** A verifier that runs on the same model as the answerer is self-grading — the same bias I designed the eval judge to avoid. If independence is lost, that should be *visible*, not hidden.
 - **Learned:** trust properties (independence, provenance) are worth surfacing explicitly, not assuming.
+- **2026-07-01 follow-up:** verified the single-key path end-to-end — OpenRouter answering (`llama-3.3-70b`) + an *independent* OpenRouter judge (`google/gemma-4-31b-it:free`) → verifier `independent=True`, full pipeline passes. Honest caveat baked into the docs: OpenRouter `:free` models are heavily rate-limited (`qwen/…:free` returned `429` at test time), so the client now retries `429`s and the docs say to add credits / use a paid model for reliable full-eval runs.
 
 ## 2026-06-30 · One-command setup
 

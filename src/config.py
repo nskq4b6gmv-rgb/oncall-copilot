@@ -31,7 +31,10 @@ ONCALL_MODE = os.getenv("ONCALL_MODE", "single")
 #   SINGLE-KEY (OpenRouter only): set JUDGE_PROVIDER=openrouter and a JUDGE_MODEL that is
 #   DIFFERENT from OPENROUTER_MODEL, e.g.
 #       export JUDGE_PROVIDER=openrouter
-#       export JUDGE_MODEL="qwen/qwen-2.5-72b-instruct"   # ≠ your OPENROUTER_MODEL
+#       export JUDGE_MODEL="google/gemma-4-31b-it:free"   # ≠ your OPENROUTER_MODEL
+#   (verified working; alt: "qwen/qwen3-next-80b-a3b-instruct:free". NOTE: ':free' models
+#    are heavily rate-limited — fine for a demo, may 429 during a full eval; the OpenRouter
+#    client retries 429s. For reliable eval runs, add OpenRouter credits or use a paid model.)
 #   If the judge client can't be built, the verifier falls back to the answering model and
 #   reports that independence was lost (shown in the visualizer and the run log).
 JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "anthropic")

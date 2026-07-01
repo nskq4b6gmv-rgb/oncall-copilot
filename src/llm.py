@@ -96,11 +96,16 @@ class OpenAIClient:
 
 
 class OpenRouterClient(OpenAIClient):
-    """OpenRouter is OpenAI-compatible: same SDK, different base_url + key."""
+    """OpenRouter is OpenAI-compatible: same SDK, different base_url + key.
+
+    max_retries is bumped because OpenRouter ':free' models are rate-limited and return
+    transient 429s; the SDK retries with backoff (respecting Retry-After) instead of failing.
+    """
     def __init__(self):
         from openai import OpenAI
         self.c = OpenAI(base_url="https://openrouter.ai/api/v1",
-                        api_key=os.getenv("OPENROUTER_API_KEY"))
+                        api_key=os.getenv("OPENROUTER_API_KEY"),
+                        max_retries=4)
         self.model = config.OPENROUTER_MODEL
 
 
