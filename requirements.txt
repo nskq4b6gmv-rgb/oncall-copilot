@@ -6,7 +6,7 @@ mcp>=1.0
 # Loads a local .env automatically (optional but recommended; falls back to plain env vars)
 python-dotenv>=1.0
 
-# Optional extra: local semantic retrieval (retrieve_semantic in src/retriever.py).
-# Not needed for the default keyword retriever. Install with:
+# Optional extra: local embeddings for semantic/hybrid retrieval (RETRIEVAL_MODE=hybrid).
+# NOT needed for the default keyword retriever; pulls in torch (heavy). Install with:
 #   pip install sentence-transformers
 # sentence-transformers>=2.2

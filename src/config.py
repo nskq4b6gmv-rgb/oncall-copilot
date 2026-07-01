@@ -24,6 +24,11 @@ MAX_AGENT_STEPS = 5        # safety stop so the agent loop can't run forever
 # "multi"  = opt-in pipeline: triage -> investigator -> verifier -> postmortem (see src/agents.py).
 ONCALL_MODE = os.getenv("ONCALL_MODE", "single")
 
+# Retrieval strategy. "keyword" = zero-dependency word matching (default).
+# "semantic"/"hybrid" = local embeddings (needs sentence-transformers; hybrid fuses both).
+# Falls back to keyword if sentence-transformers isn't installed.
+RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "keyword")
+
 # --- Judge / verifier model (used by the eval LLM-as-judge AND the multi-agent verifier) ---
 # Pin a STRONG model that is DIFFERENT from the one answering, so the model isn't grading
 # its own work (reduces self-preference bias) and the score is stable run-to-run.

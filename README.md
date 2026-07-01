@@ -67,6 +67,7 @@ Everything is env-driven; nothing hardcodes a vendor. Sensible defaults mean the
 | `ANTHROPIC_MODEL` / `OPENAI_MODEL` | `claude-sonnet-4-5` / `gpt-4o` | Answering model for those providers. |
 | `JUDGE_PROVIDER` / `JUDGE_MODEL` | `anthropic` / `claude-sonnet-4-5` | The independent judge (evals) and verifier (multi-agent). See note below. |
 | `ONCALL_MODE` | `single` | `single` = one investigator agent; `multi` = governed pipeline (triage→investigate→verify→postmortem). |
+| `RETRIEVAL_MODE` | `keyword` | `keyword` (zero-dep) \| `semantic` \| `hybrid` (keyword + local embeddings; needs `sentence-transformers`, falls back to keyword if absent). |
 | `GUARDRAILS_FILE` | `guardrails.json` | Path to the guardrail policy. |
 | `ONCALL_LOG_DIR` | `logs/` | Where per-run JSONL traces are written. |
 | `VIZ_PORT` | `8000` | Port for the live visualizer. |
@@ -112,11 +113,12 @@ On top of that, the governed path adds three production-shaped controls:
 
 | Answering model | Judge | Pass rate | Gate |
 |---|---|---|---|
-| `anthropic/claude-sonnet-4-5` (single) | `claude-sonnet-4-5` | **13/15 = 87%** | ✅ **OPEN** |
+| `anthropic/claude-sonnet-4-5` (single) | `claude-sonnet-4-5` | **15/15 = 100%** ‡ | ✅ **OPEN** |
 | `meta-llama/llama-3.3-70b-instruct` (OpenRouter, single) | `claude-sonnet-4-5` | **9/15 = 60%** † | ❌ **BLOCKED** |
 | `anthropic/claude-sonnet-4-5` (governed multi-agent) | `claude-sonnet-4-5` | **12/15 = 80%** † | ✅ **OPEN** |
 
-† The Anthropic single-agent row reflects the [`get_metric` thresholds fix](./IMPROVEMENTS.md) (was 12/15 = 80%); the OpenRouter and multi-agent rows were measured *before* that fix and haven't been re-run yet.
+‡ Reflects two fixes (see [`IMPROVEMENTS.md`](./IMPROVEMENTS.md)): [`get_metric` thresholds](./IMPROVEMENTS.md) (80%→87%) and [section chunking](./IMPROVEMENTS.md) (87%→this run). **Honest caveat:** this was a single run — the *durable* gain is the db-latency case flipping to PASS (chunking; provable deterministically via `python -m evals.retrieval_compare`); the run hit a clean 15/15 partly because the noisy `capital of France` refusal case also passed this time. Expect ~14/15 typically, not a reliable 100%.
+† The OpenRouter and multi-agent rows were measured *before* these fixes and haven't been re-run yet.
 
 **This is the whole point of the harness:** the strong model clears the bar; the cheap open model doesn't — concrete, measured model-selection evidence rather than a brand opinion. Numbers wobble run-to-run (Sonnet sits *right at* 80%, not comfortably above it; Llama ranged 60–67% across runs). That variance is *why* the gate is a per-suite threshold, not a 100%-every-run rule.
 
@@ -125,16 +127,28 @@ On top of that, the governed path adds three production-shaped controls:
 The suite deliberately includes hard cases the current design fails. These are **understood limitations, not mysteries** — and good interview material:
 
 1. ~~**Naive trend label in `get_metric`.**~~ ✅ **Fixed (2026-06-30)** — `get_metric` now has thresholds and reports a status (OK/WARNING/CRITICAL) + a magnitude-aware trend, so it no longer calls a 0.1→0.2% wiggle "rising." This was the biggest correctness win (80% → 87%); see [`IMPROVEMENTS.md`](./IMPROVEMENTS.md). *Original lesson, kept because it's the point: a garbage tool output becomes a confident-but-wrong answer — fix the instrument, not the model.*
-2. **Keyword RAG recall.** For *"how do I handle high database latency?"* keyword retrieval surfaced the runbook's *Symptoms* paragraph but missed the *Remediation* one, so the answer lacked the remediation facts. This is the textbook case for embeddings/hybrid retrieval (commented stub in `retriever.py`).
-3. **Judge + ground-truth strictness.** A few cases hinge on the answer asserting a specific framing ("it is *not* high"); when the model hedges, the judge (correctly) fails it.
+2. ~~**Keyword RAG recall.**~~ ✅ **Fixed (2026-07-01)** — the root cause was *chunking*, not the retrieval method: splitting on blank lines let a title-only scrap outrank the *Remediation* paragraph. Chunking by `##` section fixed the db-latency case (even for plain keyword); an opt-in **hybrid** mode (keyword + local embeddings, `RETRIEVAL_MODE=hybrid`) additionally handles synonym/paraphrase queries keyword can't. See [`IMPROVEMENTS.md`](./IMPROVEMENTS.md). *Lesson: check your chunk boundaries before reaching for a fancier retriever.*
+3. **Judge + ground-truth strictness.** A few cases hinge on the answer asserting a specific framing ("it is *not* high"); when the model hedges, the judge (correctly) fails it. Also, the out-of-scope *refusal* case (`capital of France`) wobbles run-to-run — the honest reason the gate is a threshold, not "100% every run."
 
-Fixing #1 and #2 is the obvious next iteration — but they're left visible on purpose, because an eval that only contains cases you pass isn't measuring anything.
+### Retrieval quality, measured directly
+
+Beyond the agent eval, `python -m evals.retrieval_compare` scores retrieval on its own (recall@k of "gold marker" phrases from the correct paragraph — deterministic, no LLM). Keyword vs hybrid on 3 cases of increasing difficulty:
+
+| Case | keyword | hybrid |
+|---|---|---|
+| simple — "checkout 5xx, first checks?" | 2/2 ✓ | 2/2 ✓ |
+| medium — "search feels laggy, how to investigate?" | 2/2 ✓ | 2/2 ✓ |
+| large — "datastore is crawling… speed it up?" (synonym gap) | **0/2 ✗** | **2/2 ✓** |
+| **Recall@4** | **67%** | **100%** |
+
+The `large` case isolates what embeddings buy: its words share *nothing* with the runbook, so keyword is blind to it while embeddings match by meaning.
 
 ## What's inside
 
 | Path | What it demonstrates |
 |---|---|
-| `src/retriever.py` | RAG: chunking, keyword retrieval, citations, refuse-on-empty-context |
+| `src/retriever.py` | RAG: section chunking, keyword / semantic / **hybrid** (RRF) retrieval, citations, refuse-on-empty-context |
+| `evals/retrieval_compare.py` + `evals/retrieval_cases.jsonl` | Direct retrieval eval (recall@k): keyword vs hybrid on 3 cases |
 | `src/tools.py` | Tool use: JSON-Schema tool defs, **read-only by construction**, error-as-result recovery |
 | `src/llm.py` | Provider abstraction: one neutral log → Anthropic `tool_use` blocks **or** OpenAI `tool_calls` + `tool` role |
 | `src/agent.py` | Agent loop: observe→act→observe with a max-steps stop |

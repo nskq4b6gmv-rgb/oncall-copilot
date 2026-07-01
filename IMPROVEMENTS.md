@@ -13,6 +13,7 @@ Each entry is **What → Why → Result / what I learned.** Dates and commit has
 | 2026-06-30 | Configurable independent verifier (single-key) + docs | `2c0aa44` |
 | 2026-06-30 | One-command setup (`.env.example` + dotenv) | `7b6783f` |
 | 2026-06-30 | Tuning: `get_metric` thresholds (80% → 87%) | _(open thread #1)_ |
+| 2026-07-01 | Retrieval: section chunking + hybrid embeddings (87% → 100%*) | _(open thread #2)_ |
 
 ---
 
@@ -133,12 +134,35 @@ The first of the "open threads" below, done as its own change.
 
 ---
 
+## 2026-07-01 · Retrieval — fixed chunking (the real culprit) + added hybrid embeddings
+
+Thread #2. I set out to add embeddings to fix the `how do I handle high database latency?` failure — and debugging it taught me the failure wasn't the *method*, it was the *chunking*. Two levers, decomposed honestly.
+
+**Lever 1 — chunk by section, not by blank line (the actual fix).** The old chunker split on blank lines, which fragmented each runbook and created useless title-only scraps. For the db query, the *Remediation* paragraph (the answer) ranked **6th** — just outside `k=4` — while the title-only "# Runbook: High database latency" chunk ranked *1st*. Chunking by `##` section (and dropping the title scraps) keeps each runbook's Remediation intact as one unit. This alone fixed the case **for plain keyword too** — no embeddings required.
+
+**Lever 2 — hybrid retrieval (keyword + local embeddings), opt-in.** `RETRIEVAL_MODE=hybrid` fuses keyword ranking with cosine similarity over local `all-MiniLM-L6-v2` embeddings (Reciprocal Rank Fusion). Default stays `keyword` (zero heavy deps); hybrid needs `sentence-transformers` and falls back to keyword if it's absent. What embeddings uniquely buy: robustness to **vocabulary that doesn't match the docs** — the one thing keyword literally cannot do.
+
+**Before → after — retrieval recall** (`python -m evals.retrieval_compare`, 3 new cases, deterministic, no LLM):
+
+| Case | Query | keyword | hybrid |
+|---|---|---|---|
+| simple | "checkout is throwing 5xx, what are the first checks?" | 2/2 ✓ | 2/2 ✓ |
+| medium | "search feels laggy for users, how should I investigate?" | 2/2 ✓ | 2/2 ✓ |
+| large | "our datastore is crawling… how do we speed it back up?" (synonym gap) | **0/2 ✗** | **2/2 ✓** |
+| | **Recall@4** | **4/6 = 67%** | **6/6 = 100%** |
+
+The `large` case is the honest isolation of the embeddings win: "datastore/crawling/speed up" share **no words** with the db-latency runbook, so keyword is blind to it; embeddings match by meaning.
+
+**Before → after — full agent eval** (Anthropic, single-agent): **13/15 (87%) → 15/15 (100%)** this run, gate OPEN. Honest attribution: the **durable** gain is the db-latency case flipping to PASS (chunking; provable at the retrieval level above). The run hit a clean 15/15 partly because the noisy `capital of France` refusal case also passed this time — that one wobbles, so I'd expect ~14/15 typically, not a reliable 100%. **What I learned:** before reaching for a fancier retrieval method, check your chunk boundaries — coherent chunks were a bigger lever than embeddings here; embeddings earn their keep specifically on synonym/paraphrase queries.
+
+---
+
 ## Open threads (what I'd do next, and why it's not done)
 
 These are deliberately *not* fixed yet — an eval that only contains cases you pass isn't measuring anything. See the README's "Known failure modes" for the live failures.
 
 1. ~~**Give `get_metric` real thresholds**~~ ✅ **Done 2026-06-30** (see entry above) — 80% → 87%.
-2. **Hybrid retrieval + reranking** to fix the keyword-RAG recall miss on the db-latency runbook. *(next up — still failing as of the latest run.)*
+2. ~~**Hybrid retrieval + reranking**~~ ✅ **Done 2026-07-01** (see entry above) — root cause was chunking; added section chunking + opt-in hybrid embeddings.
 3. **Recalibrate the verifier rubric** to penalise *both* over-claiming and unhelpful hedging, with a second revision budget — then re-measure.
 4. **Bigger eval set** so a multi-agent accuracy delta would actually be detectable.
 5. **Online evals** — sample real runs from the JSONL logs and grade them; treat evals as a living dataset.
